@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         haru twitter toolbox
 // @namespace    local.x-share-links
-// @version      1.1.3
-// @description  Restore native image context menus and add original/fx/vx links to X post share menus.
+// @version      1.2.0
+// @description  Download post media, restore native image context menus, and copy clean original/fx/vx links on X.
 // @homepageURL  https://github.com/Antonoko/haru-twitter-toolbox
 // @downloadURL  https://raw.githubusercontent.com/Antonoko/haru-twitter-toolbox/main/haru-twitter-toolbox.user.js
 // @updateURL    https://raw.githubusercontent.com/Antonoko/haru-twitter-toolbox/main/haru-twitter-toolbox.user.js
@@ -11,6 +11,9 @@
 // @match        https://www.x.com/*
 // @match        https://www.twitter.com/*
 // @grant        GM_setClipboard
+// @grant        GM_download
+// @connect      pbs.twimg.com
+// @connect      video.twimg.com
 // @sandbox      raw
 // @run-at       document-start
 // ==/UserScript==
@@ -46,6 +49,7 @@
   const copyLabels = /^(Copy link(?: to (?:post|Tweet))?|复制链接|複製連結|复制推文链接|複製貼文連結|リンクをコピー)$/i;
   let context = null;
   const enhanced = new WeakMap();
+  const activeDownloads = new Set();
 
   function postURL(value) {
     try {
@@ -117,6 +121,93 @@
     }
   }
 
+  function postMedia(captured) {
+    const id = postURL(captured.url).id;
+    const button = captured.button;
+    const key = Object.keys(button).find(key => key.startsWith('__reactFiber$'));
+    // Match the post ID rather than walking nested quoted-post media or thumbnails.
+    for (let fiber = key && button[key]; fiber; fiber = fiber.return) {
+      const tweet = fiber.memoizedProps?.tweet;
+      if (tweet?.id_str === id) {
+        return tweet.extended_entities?.media || tweet.entities?.media || [];
+      }
+    }
+    throw new Error('Cannot read media. Open the post and try again.');
+  }
+
+  function mediaFile(media) {
+    if (media.type === 'photo') {
+      const url = new URL(media.media_url_https);
+      if (url.protocol !== 'https:' || url.hostname !== 'pbs.twimg.com' || !url.pathname.startsWith('/media/')) return null;
+      const extension = url.pathname.match(/\.(jpg|jpeg|png|webp)$/i)?.[1]?.toLowerCase()
+        || url.searchParams.get('format') || 'jpg';
+      if (!/^(jpg|jpeg|png|webp)$/.test(extension)) return null;
+      url.pathname = url.pathname.replace(/\.(jpg|jpeg|png|webp)$/i, '');
+      url.search = '';
+      url.searchParams.set('format', extension);
+      url.searchParams.set('name', 'orig');
+      return { url: url.href, extension };
+    }
+    if (media.type === 'video' || media.type === 'animated_gif') {
+      const variants = (media.video_info?.variants || []).filter(variant => {
+        if (variant.content_type !== 'video/mp4') return false;
+        const url = new URL(variant.url);
+        return url.protocol === 'https:' && url.hostname === 'video.twimg.com' && url.pathname.endsWith('.mp4');
+      });
+      variants.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+      if (variants[0]) return { url: variants[0].url, extension: 'mp4' };
+    }
+    return null;
+  }
+
+  function downloadFile(file, name) {
+    return new Promise((resolve, reject) => {
+      GM_download({
+        url: file.url, name, saveAs: false,
+        onload: resolve,
+        onerror: error => reject(new Error(error?.error || 'Download failed')),
+        ontimeout: () => reject(new Error('Download timed out')),
+      });
+    });
+  }
+
+  async function downloadMedia(captured, media) {
+    const id = postURL(captured.url).id;
+    if (activeDownloads.has(id)) { notify('This post is already downloading'); return; }
+    if (!media.length) { notify('This post has no downloadable media'); return; }
+    if (typeof GM_download !== 'function') throw new Error('Update the script and allow Tampermonkey downloads.');
+    activeDownloads.add(id);
+    let completed = 0;
+    try {
+      for (const [index, entry] of media.entries()) {
+        notify(`Downloading media ${index + 1}/${media.length}…`);
+        try {
+          const file = mediaFile(entry);
+          if (!file) throw new Error('No direct image or MP4 available');
+          await downloadFile(file, `x_${id}_${index + 1}.${file.extension}`);
+          completed++;
+        } catch (error) {
+          console.error('[X Media Download]', error);
+        }
+      }
+      notify(completed === media.length ? `Downloaded ${completed} media file(s)`
+        : `Downloaded ${completed}/${media.length}. Some media failed or are unavailable; check Tampermonkey download permissions.`);
+    } finally {
+      activeDownloads.delete(id);
+    }
+  }
+
+  function dismissMenu(menu, button) {
+    // Ask X to dismiss its own portal, avoiding manual removal of React DOM.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+    if (menu.isConnected) {
+      const backdrop = menu.parentElement?.firstElementChild;
+      if (backdrop && backdrop !== menu && !backdrop.hasAttribute('role')
+          && ['absolute', 'fixed'].includes(getComputedStyle(backdrop).position)) backdrop.click();
+    }
+    button?.focus();
+  }
+
   function enhance(menu) {
     const originals = [...menu.querySelectorAll('[role="menuitem"]')]
       .filter(item => item.getAttribute(marker) !== 'item'
@@ -135,6 +226,7 @@
       ['Copy link', null],
       ['Copy link (fx)', 'fxtwitter.com'],
       ['Copy link (vx)', 'vxtwitter.com'],
+      ['Download media', 'download'],
     ]) {
       // Cloning DOM copies the site's icon/layout, but not React click handlers.
       const item = original.cloneNode(true);
@@ -150,23 +242,22 @@
         event.preventDefault();
         event.stopImmediatePropagation();
         try {
+          if (host === 'download') {
+            const media = postMedia(captured);
+            dismissMenu(menu, captured.button);
+            await downloadMedia(captured, media);
+            return;
+          }
           const url = new URL(captured.url);
           if (host) url.hostname = host;
           url.search = '';
           url.hash = '';
           await copy(url.href);
-          // Ask X to dismiss its own portal, avoiding manual removal of React DOM.
-          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
-          if (menu.isConnected) {
-            const backdrop = menu.parentElement?.firstElementChild;
-            if (backdrop && backdrop !== menu && !backdrop.hasAttribute('role')
-                && ['absolute', 'fixed'].includes(getComputedStyle(backdrop).position)) backdrop.click();
-          }
-          captured.button?.focus();
+          dismissMenu(menu, captured.button);
           notify(`Copied ${host || 'x.com'} link`);
         } catch (error) {
           console.error('[X Share Links]', error);
-          notify('Copy failed — please try again');
+          notify(host === 'download' ? error.message : 'Copy failed — please try again');
         }
       };
       item.addEventListener('click', activate);
