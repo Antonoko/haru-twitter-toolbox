@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         haru twitter toolbox
 // @namespace    local.x-share-links
-// @version      1.1.1
+// @version      1.1.2
 // @description  Restore native image context menus and add original/fx/vx links to X post share menus.
 // @homepageURL  https://github.com/Antonoko/haru-twitter-toolbox
 // @downloadURL  https://raw.githubusercontent.com/Antonoko/haru-twitter-toolbox/main/haru-twitter-toolbox.user.js
@@ -17,14 +17,26 @@
 (async () => {
   'use strict';
 
-  // Capture before X's handlers, without cancelling the browser's native menu.
-  window.addEventListener('contextmenu', event => {
-    const target = event.target instanceof Element ? event.target : null;
-    if (!target) return;
+  function isPostImage(target) {
+    if (!(target instanceof Element)) return false;
     const image = target.closest('img');
-    const isPostImage = target.closest('[data-testid="tweetPhoto"]')
-      || (image && /^https:\/\/pbs\.twimg\.com\/media\//.test(image.currentSrc || image.src));
-    if (isPostImage) event.stopImmediatePropagation();
+    return !!(target.closest('[data-testid="tweetPhoto"]')
+      || (image && /^https:\/\/pbs\.twimg\.com\/media\//.test(image.currentSrc || image.src)));
+  }
+
+  function stopPostImageMenu(event) {
+    // Keep defaultPrevented intact: gesture extensions decide whether to show
+    // the native menu (e.g. CrxMouse's second right click on macOS/Linux).
+    if (isPostImage(event.target)) event.stopPropagation();
+  }
+
+  // Let window/document capture listeners (including gesture extensions) run.
+  // Add the hook during capture so it handles this event at the image itself,
+  // before it bubbles to X's delegated React context-menu handler.
+  document.addEventListener('contextmenu', event => {
+    if (isPostImage(event.target)) {
+      event.target.addEventListener('contextmenu', stopPostImageMenu, { capture: true, once: true });
+    }
   }, true);
 
   // The early context-menu hook must also work before head/body exist.
