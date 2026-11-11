@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         haru twitter toolbox
 // @namespace    local.x-share-links
-// @version      1.1.2
+// @version      1.1.3
 // @description  Restore native image context menus and add original/fx/vx links to X post share menus.
 // @homepageURL  https://github.com/Antonoko/haru-twitter-toolbox
 // @downloadURL  https://raw.githubusercontent.com/Antonoko/haru-twitter-toolbox/main/haru-twitter-toolbox.user.js
@@ -11,31 +11,29 @@
 // @match        https://www.x.com/*
 // @match        https://www.twitter.com/*
 // @grant        GM_setClipboard
+// @sandbox      raw
 // @run-at       document-start
 // ==/UserScript==
 
 (async () => {
   'use strict';
 
-  function isPostImage(target) {
-    if (!(target instanceof Element)) return false;
-    const image = target.closest('img');
-    return !!(target.closest('[data-testid="tweetPhoto"]')
-      || (image && /^https:\/\/pbs\.twimg\.com\/media\//.test(image.currentSrc || image.src)));
-  }
-
-  function stopPostImageMenu(event) {
-    // Keep defaultPrevented intact: gesture extensions decide whether to show
-    // the native menu (e.g. CrxMouse's second right click on macOS/Linux).
-    if (isPostImage(event.target)) event.stopPropagation();
-  }
-
-  // Let window/document capture listeners (including gesture extensions) run.
-  // Add the hook during capture so it handles this event at the image itself,
-  // before it bubbles to X's delegated React context-menu handler.
+  // Disable only X's image-menu callback. Do not cancel or stop the event:
+  // CrxMouse handles its macOS/Linux double-right-click on document's bubble phase.
   document.addEventListener('contextmenu', event => {
-    if (isPostImage(event.target)) {
-      event.target.addEventListener('contextmenu', stopPostImageMenu, { capture: true, once: true });
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    const image = target.closest('img');
+    if (!target.closest('[data-testid="tweetPhoto"]')
+        && !(image && /^https:\/\/pbs\.twimg\.com\/media\//.test(image.currentSrc || image.src))) return;
+    // Read the current props on every right click, including after React rerenders.
+    for (let node = target; node && node !== document.body; node = node.parentElement) {
+      const key = Object.keys(node).find(key => key.startsWith('__reactProps$'));
+      const props = key && node[key];
+      if (typeof props?.onContextMenu === 'function') {
+        props.onContextMenu = undefined;
+        break;
+      }
     }
   }, true);
 
