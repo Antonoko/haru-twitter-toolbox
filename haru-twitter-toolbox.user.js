@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         haru twitter toolbox
 // @namespace    local.x-share-links
-// @version      1.2.0
+// @version      1.2.1
 // @description  Download post media, restore native image context menus, and copy clean original/fx/vx links on X.
 // @homepageURL  https://github.com/Antonoko/haru-twitter-toolbox
 // @downloadURL  https://raw.githubusercontent.com/Antonoko/haru-twitter-toolbox/main/haru-twitter-toolbox.user.js
@@ -230,6 +230,21 @@
     ]) {
       // Cloning DOM copies the site's icon/layout, but not React click handlers.
       const item = original.cloneNode(true);
+      if (host === 'download') {
+        const icon = item.querySelector('svg');
+        if (icon) {
+          icon.setAttribute('viewBox', '0 0 24 24');
+          icon.setAttribute('aria-hidden', 'true');
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          path.setAttribute('d', 'M12 3v12m-5-5 5 5 5-5M4 15v5h16v-5');
+          path.setAttribute('fill', 'none');
+          path.setAttribute('stroke', 'currentColor');
+          path.setAttribute('stroke-width', '2');
+          path.setAttribute('stroke-linecap', 'round');
+          path.setAttribute('stroke-linejoin', 'round');
+          icon.replaceChildren(path);
+        }
+      }
       item.setAttribute(marker, 'item');
       item.setAttribute('tabindex', '0');
       item.setAttribute('aria-label', label);
