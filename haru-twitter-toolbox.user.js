@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         haru twitter toolbox
 // @namespace    local.x-share-links
-// @version      1.0.1
-// @description  Put Copy link, Copy link (fx), and Copy link (vx) first in X post share menus.
+// @version      1.1.0
+// @description  Restore native image context menus and add original/fx/vx links to X post share menus.
 // @homepageURL  https://github.com/Antonoko/haru-twitter-toolbox
 // @downloadURL  https://raw.githubusercontent.com/Antonoko/haru-twitter-toolbox/main/haru-twitter-toolbox.user.js
 // @updateURL    https://raw.githubusercontent.com/Antonoko/haru-twitter-toolbox/main/haru-twitter-toolbox.user.js
@@ -11,11 +11,27 @@
 // @match        https://www.x.com/*
 // @match        https://www.twitter.com/*
 // @grant        GM_setClipboard
-// @run-at       document-idle
+// @run-at       document-start
 // ==/UserScript==
 
-(() => {
+(async () => {
   'use strict';
+
+  // Capture before X's handlers, without cancelling the browser's native menu.
+  window.addEventListener('contextmenu', event => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    const image = target.closest('img');
+    const isPostImage = target.closest('[data-testid="tweetPhoto"]')
+      || (image && /^https:\/\/pbs\.twimg\.com\/media\//.test(image.currentSrc || image.src));
+    if (isPostImage) event.stopImmediatePropagation();
+  }, true);
+
+  // The early context-menu hook must also work before head/body exist.
+  if (document.readyState === 'loading') {
+    await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve, { once: true }));
+  }
+
   const marker = 'data-x-share-links';
   const copyLabels = /^(Copy link(?: to (?:post|Tweet))?|复制链接|複製連結|复制推文链接|複製貼文連結|リンクをコピー)$/i;
   let context = null;
@@ -61,6 +77,9 @@
 
   const style = document.createElement('style');
   style.textContent = `
+    [data-testid="tweetPhoto"] img, img[src^="https://pbs.twimg.com/media/"] {
+      pointer-events: auto !important;
+    }
     [${marker}="original"] { display: none !important; }
     [${marker}="item"]:hover, [${marker}="item"]:focus-visible {
       background-color: rgba(128,128,128,.14) !important;
