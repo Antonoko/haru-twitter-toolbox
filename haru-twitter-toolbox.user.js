@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         haru twitter toolbox
 // @namespace    local.x-share-links
-// @version      1.1.0
+// @version      1.1.1
 // @description  Restore native image context menus and add original/fx/vx links to X post share menus.
 // @homepageURL  https://github.com/Antonoko/haru-twitter-toolbox
 // @downloadURL  https://raw.githubusercontent.com/Antonoko/haru-twitter-toolbox/main/haru-twitter-toolbox.user.js
@@ -35,7 +35,7 @@
   const marker = 'data-x-share-links';
   const copyLabels = /^(Copy link(?: to (?:post|Tweet))?|复制链接|複製連結|复制推文链接|複製貼文連結|リンクをコピー)$/i;
   let context = null;
-  const enhanced = new WeakSet();
+  const enhanced = new WeakMap();
 
   function postURL(value) {
     try {
@@ -108,13 +108,18 @@
   }
 
   function enhance(menu) {
-    if (enhanced.has(menu)) return;
-    const original = [...menu.querySelectorAll('[role="menuitem"]')]
-      .find(item => copyLabels.test(item.textContent.trim()));
-    if (!original || original.parentElement !== menu) return;
-    const captured = context && Date.now() - context.time < 10000 ? context : null;
+    const originals = [...menu.querySelectorAll('[role="menuitem"]')]
+      .filter(item => item.getAttribute(marker) !== 'item'
+        && item.parentElement === menu && copyLabels.test(item.textContent.trim()));
+    const original = originals[0];
+    if (!original) return;
+    const captured = enhanced.get(menu)
+      || (context && Date.now() - context.time < 10000 ? context : null);
     if (!captured?.url) return;
-    enhanced.add(menu);
+    // X may replace its copy row after opening the menu. Hide new copies too.
+    originals.forEach(item => item.setAttribute(marker, 'original'));
+    if (menu.querySelector(`[${marker}="item"]`)) return;
+    enhanced.set(menu, captured);
     const fragment = document.createDocumentFragment();
     for (const [label, host] of [
       ['Copy link', null],
@@ -134,10 +139,11 @@
       const activate = async event => {
         event.preventDefault();
         event.stopImmediatePropagation();
-        if (!host) { original.click(); return; }
         try {
           const url = new URL(captured.url);
-          url.hostname = host;
+          if (host) url.hostname = host;
+          url.search = '';
+          url.hash = '';
           await copy(url.href);
           // Ask X to dismiss its own portal, avoiding manual removal of React DOM.
           document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
@@ -147,7 +153,7 @@
                 && ['absolute', 'fixed'].includes(getComputedStyle(backdrop).position)) backdrop.click();
           }
           captured.button?.focus();
-          notify(`Copied ${host} link`);
+          notify(`Copied ${host || 'x.com'} link`);
         } catch (error) {
           console.error('[X Share Links]', error);
           notify('Copy failed — please try again');
@@ -168,7 +174,6 @@
       });
       fragment.append(item);
     }
-    original.setAttribute(marker, 'original');
     menu.prepend(fragment);
   }
 
