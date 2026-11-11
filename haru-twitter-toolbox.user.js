@@ -1,8 +1,11 @@
 // ==UserScript==
 // @name         haru twitter toolbox
 // @namespace    local.x-share-links
-// @version      1.0.0
+// @version      1.0.1
 // @description  Put Copy link, Copy link (fx), and Copy link (vx) first in X post share menus.
+// @homepageURL  https://github.com/Antonoko/haru-twitter-toolbox
+// @downloadURL  https://raw.githubusercontent.com/Antonoko/haru-twitter-toolbox/main/haru-twitter-toolbox.user.js
+// @updateURL    https://raw.githubusercontent.com/Antonoko/haru-twitter-toolbox/main/haru-twitter-toolbox.user.js
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @match        https://www.x.com/*

@@ -11,5 +11,7 @@
 ## 安装
 
 1. 安装 Tampermonkey（油猴）浏览器扩展。
-2. 在 GitHub 打开 [`haru-twitter-toolbox.user.js`](./haru-twitter-toolbox.user.js)，点击 **Raw**，在油猴页面点击「安装」。
+2. 点击 [一键安装脚本](https://raw.githubusercontent.com/Antonoko/haru-twitter-toolbox/main/haru-twitter-toolbox.user.js)，在油猴页面点击「安装」。
 3. 刷新 X / Twitter，打开帖子的分享菜单即可使用。
+
+安装后支持通过油猴检查更新。
